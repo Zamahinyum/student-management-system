@@ -152,6 +152,9 @@ class SystemManager:
             overall_attendance = total_attendance / len(student_records)
             print(f"Overall Attendance: {overall_attendance:.1f}%")
         
+        gpa = self.get_student_gpa(student_id)
+        print(f"GPA: {gpa:.2f}")
+        
         print("="*60 + "\n")
     
     def view_all_students(self):
@@ -165,6 +168,222 @@ class SystemManager:
         for student in self.students.values():
             print(student)
         print("="*60 + "\n")
+    
+    def get_student_gpa(self, student_id):
+        student_records = [r for r in self.records if r.student_id == student_id]
+        if not student_records:
+            return 0.0
+        
+        total_points = 0
+        total_credits = 0
+        
+        for record in student_records:
+            avg_grade = record.get_average_grade()
+            if avg_grade > 0:
+                subject = self.subjects.get(record.subject_code)
+                if subject:
+                    gpa_points = self.grade_to_gpa(avg_grade)
+                    total_points += gpa_points * subject.credit_hours
+                    total_credits += subject.credit_hours
+        
+        if total_credits == 0:
+            return 0.0
+        return total_points / total_credits
+    
+    def grade_to_gpa(self, grade):
+        if grade >= 90:
+            return 4.0
+        elif grade >= 85:
+            return 3.7
+        elif grade >= 80:
+            return 3.3
+        elif grade >= 75:
+            return 3.0
+        elif grade >= 70:
+            return 2.7
+        elif grade >= 65:
+            return 2.3
+        elif grade >= 60:
+            return 2.0
+        elif grade >= 55:
+            return 1.7
+        elif grade >= 50:
+            return 1.0
+        else:
+            return 0.0
+    
+    def view_student_rankings(self):
+        if not self.students:
+            print("No students in the system.")
+            return
+        
+        student_gpas = []
+        for student_id in self.students:
+            gpa = self.get_student_gpa(student_id)
+            student_gpas.append((student_id, gpa))
+        
+        student_gpas.sort(key=lambda x: x[1], reverse=True)
+        
+        print("\n" + "="*70)
+        print("STUDENT RANKINGS (BY GPA)")
+        print("="*70)
+        print(f"{'Rank':<8} {'Student ID':<15} {'Name':<25} {'GPA':<10}")
+        print("-"*70)
+        
+        for rank, (student_id, gpa) in enumerate(student_gpas, 1):
+            student = self.students[student_id]
+            print(f"{rank:<8} {student_id:<15} {student.name:<25} {gpa:.2f}")
+        
+        print("="*70 + "\n")
+    
+    def view_subject_statistics(self):
+        if not self.subjects:
+            print("No subjects in the system.")
+            return
+        
+        print("\n" + "="*80)
+        print("SUBJECT-WISE STATISTICS")
+        print("="*80)
+        print(f"{'Subject Code':<15} {'Subject Name':<25} {'Enrolled':<12} {'Avg Grade':<12} {'Avg Attend'}")
+        print("-"*80)
+        
+        for subject_code, subject in self.subjects.items():
+            subject_records = [r for r in self.records if r.subject_code == subject_code]
+            
+            if not subject_records:
+                enrolled = 0
+                avg_grade = 0.0
+                avg_attendance = 0.0
+            else:
+                enrolled = len(subject_records)
+                total_grade = sum([r.get_average_grade() for r in subject_records if r.get_average_grade() > 0])
+                count_grade = len([r for r in subject_records if r.get_average_grade() > 0])
+                avg_grade = total_grade / count_grade if count_grade > 0 else 0.0
+                
+                total_attendance = sum([r.get_attendance_percentage() for r in subject_records])
+                avg_attendance = total_attendance / enrolled if enrolled > 0 else 0.0
+            
+            print(f"{subject_code:<15} {subject.subject_name:<25} {enrolled:<12} {avg_grade:>6.2f}      {avg_attendance:>6.1f}%")
+        
+        print("="*80 + "\n")
+    
+    def delete_student(self, student_id):
+        if student_id not in self.students:
+            print(f"Error: Student ID {student_id} not found.")
+            return False
+        
+        del self.students[student_id]
+        self.records = [r for r in self.records if r.student_id != student_id]
+        self.save_students()
+        self.save_records()
+        self.save_enrollments()
+        print(f"Student {student_id} deleted successfully!")
+        return True
+    
+    def delete_subject(self, subject_code):
+        if subject_code not in self.subjects:
+            print(f"Error: Subject code {subject_code} not found.")
+            return False
+        
+        del self.subjects[subject_code]
+        self.records = [r for r in self.records if r.subject_code != subject_code]
+        
+        for student in self.students.values():
+            if subject_code in student.enrolled_subjects:
+                student.enrolled_subjects.remove(subject_code)
+        
+        self.save_subjects()
+        self.save_records()
+        self.save_enrollments()
+        print(f"Subject {subject_code} deleted successfully!")
+        return True
+    
+    def unenroll_student(self, student_id, subject_code):
+        if student_id not in self.students:
+            print(f"Error: Student ID {student_id} not found.")
+            return False
+        
+        record_found = False
+        for record in self.records:
+            if record.student_id == student_id and record.subject_code == subject_code:
+                self.records.remove(record)
+                record_found = True
+                break
+        
+        if not record_found:
+            print(f"Error: Enrollment record not found.")
+            return False
+        
+        if subject_code in self.students[student_id].enrolled_subjects:
+            self.students[student_id].enrolled_subjects.remove(subject_code)
+        
+        self.save_records()
+        self.save_enrollments()
+        print(f"Student {student_id} unenrolled from {subject_code} successfully!")
+        return True
+    
+    def export_student_report(self, student_id):
+        if student_id not in self.students:
+            print(f"Error: Student ID {student_id} not found.")
+            return False
+        
+        student = self.students[student_id]
+        filename = f"report_{student_id}.txt"
+        filepath = os.path.join(self.data_dir, filename)
+        
+        with open(filepath, 'w') as f:
+            f.write("="*60 + "\n")
+            f.write("STUDENT REPORT\n")
+            f.write("="*60 + "\n")
+            f.write(f"Student ID: {student.student_id}\n")
+            f.write(f"Name: {student.name}\n")
+            f.write(f"Section: {student.section}\n")
+            f.write(f"Total Subjects Enrolled: {student.get_num_subjects()}\n")
+            f.write("-"*60 + "\n")
+            
+            student_records = [r for r in self.records if r.student_id == student_id]
+            
+            if not student_records:
+                f.write("No enrollment records found.\n")
+                f.write("="*60 + "\n")
+            else:
+                f.write(f"{'Subject Code':<15} {'Subject Name':<25} {'Avg Grade':<12} {'Attendance'}\n")
+                f.write("-"*60 + "\n")
+                
+                total_grade = 0
+                total_attendance = 0
+                count = 0
+                
+                for record in student_records:
+                    subject = self.subjects.get(record.subject_code)
+                    subject_name = subject.subject_name if subject else "Unknown"
+                    avg_grade = record.get_average_grade()
+                    attendance = record.get_attendance_percentage()
+                    
+                    f.write(f"{record.subject_code:<15} {subject_name:<25} {avg_grade:>6.2f}      {attendance:>6.1f}%\n")
+                    
+                    if avg_grade > 0:
+                        total_grade += avg_grade
+                        count += 1
+                    total_attendance += attendance
+                
+                f.write("-"*60 + "\n")
+                
+                if count > 0:
+                    overall_avg = total_grade / count
+                    f.write(f"Overall Average Grade: {overall_avg:.2f}\n")
+                
+                if len(student_records) > 0:
+                    overall_attendance = total_attendance / len(student_records)
+                    f.write(f"Overall Attendance: {overall_attendance:.1f}%\n")
+                
+                gpa = self.get_student_gpa(student_id)
+                f.write(f"GPA: {gpa:.2f}\n")
+                
+                f.write("="*60 + "\n")
+        
+        print(f"Report exported successfully to {filepath}")
+        return True
     
     def save_students(self):
         filepath = os.path.join(self.data_dir, 'students.txt')
